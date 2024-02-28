@@ -544,7 +544,7 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
 
     enum AVPixelFormat in_format;
     enum AVPixelFormat out_format;
-    enum AVPixelFormat final_format;                /* 用与保存RGB格式，进行step4 */
+    enum AVPixelFormat final_format;                /* 用于保存RGB格式，进行step4 */
     enum AVPixelFormat in_deinterleaved_format;
     enum AVPixelFormat out_deinterleaved_format;
 
@@ -558,13 +558,7 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
     in_frames_ctx = (AVHWFramesContext*)ctx->inputs[0]->hw_frames_ctx->data;
     in_format     = in_frames_ctx->sw_format;
     out_format    = (s->format == AV_PIX_FMT_NONE) ? in_format : s->format;
-
-    av_log(ctx, AV_LOG_ERROR, "in   format: %s\n"
-                              "out  format: %s\n"
-                              "priv format: %s\n",
-                              av_get_pix_fmt_name(in_format),
-                              av_get_pix_fmt_name(out_format),
-                              av_get_pix_fmt_name(s->format));
+    final_format  = out_format;
 
     if (!format_is_supported(in_format)) {
         av_log(ctx, AV_LOG_ERROR, "Unsupported input format: %s\n",
@@ -578,103 +572,87 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
     }
 
     in_deinterleaved_format  = get_deinterleaved_format(in_format);
-    if ((out_format == AV_PIX_FMT_RGB24 || out_format == AV_PIX_FMT_BGR24))// && 
-//        (in_width != out_width || in_height != out_height))
+    if (out_format == AV_PIX_FMT_RGB24 || out_format == AV_PIX_FMT_BGR24)
     {
         /* out format = rgb，且需要缩放时，先转化为yuv420p中间格式 */
-        final_format = out_format;
         out_format = AV_PIX_FMT_NV12;
     }
     out_deinterleaved_format = get_deinterleaved_format(out_format);
-
-    av_log(ctx, AV_LOG_ERROR, "in  de format: %s\n"
-                              "out de format: %s\n",
-                              av_get_pix_fmt_name(in_deinterleaved_format),
-                              av_get_pix_fmt_name(out_deinterleaved_format));
-
-    if (in_deinterleaved_format  != AV_PIX_FMT_NONE &&
-        out_deinterleaved_format != AV_PIX_FMT_NONE)
+    if (in_deinterleaved_format  == AV_PIX_FMT_NONE ||
+        out_deinterleaved_format == AV_PIX_FMT_NONE)
     {
-        /* figure out which stages need to be done */
-        if (in_width != out_width || in_height != out_height ||
-            in_deinterleaved_format != out_deinterleaved_format) {
-            s->stages[STAGE_RESIZE].stage_needed = 1;
+        av_log(ctx, AV_LOG_ERROR, "in defmt[%s], out defmt[%s]\n",
+                                  av_get_pix_fmt_name(in_deinterleaved_format),
+                                  av_get_pix_fmt_name(out_deinterleaved_format));
+        return AVERROR_BUG;
+    }
 
-            if (s->interp_algo == NPPI_INTER_SUPER &&
-                (out_width > in_width && out_height > in_height)) {
-                s->interp_algo = NPPI_INTER_LANCZOS;
-                av_log(ctx, AV_LOG_WARNING, "super-sampling not supported for output dimensions, using lanczos instead.\n");
-            }
-            if (s->interp_algo == NPPI_INTER_SUPER &&
-                !(out_width < in_width && out_height < in_height)) {
-                s->interp_algo = NPPI_INTER_CUBIC;
-                av_log(ctx, AV_LOG_WARNING, "super-sampling not supported for output dimensions, using cubic instead.\n");
-            }
+    /* figure out which stages need to be done */
+    if (in_width != out_width || in_height != out_height ||
+        in_deinterleaved_format != out_deinterleaved_format) {
+        s->stages[STAGE_RESIZE].stage_needed = 1;
+
+        if (s->interp_algo == NPPI_INTER_SUPER &&
+            (out_width > in_width && out_height > in_height)) {
+            s->interp_algo = NPPI_INTER_LANCZOS;
+            av_log(ctx, AV_LOG_WARNING, "super-sampling not supported for output dimensions, using lanczos instead.\n");
         }
-
-        if (!s->stages[STAGE_RESIZE].stage_needed && in_format == final_format)
-            s->passthrough = 1;     // 表示输入和输出一样，不用处理
-
-        if (!s->passthrough) {
-            if (in_format != in_deinterleaved_format)
-                s->stages[STAGE_DEINTERLEAVE].stage_needed = 1;
-            if (out_format != out_deinterleaved_format)
-                s->stages[STAGE_INTERLEAVE].stage_needed = 1;
-            if (final_format == AV_PIX_FMT_RGB24 || final_format == AV_PIX_FMT_BGR24)
-                s->stages[STAGE_FMTCONV].stage_needed = 1;
-        }
-
-        s->stages[STAGE_DEINTERLEAVE].in_fmt              = in_format;
-        s->stages[STAGE_DEINTERLEAVE].out_fmt             = in_deinterleaved_format;
-        s->stages[STAGE_DEINTERLEAVE].planes_in[0].width  = in_width;
-        s->stages[STAGE_DEINTERLEAVE].planes_in[0].height = in_height;
-
-        s->stages[STAGE_RESIZE].in_fmt               = in_deinterleaved_format;
-        s->stages[STAGE_RESIZE].out_fmt              = out_deinterleaved_format;
-        s->stages[STAGE_RESIZE].planes_in[0].width   = in_width;
-        s->stages[STAGE_RESIZE].planes_in[0].height  = in_height;
-        s->stages[STAGE_RESIZE].planes_out[0].width  = out_width;
-        s->stages[STAGE_RESIZE].planes_out[0].height = out_height;
-
-        s->stages[STAGE_INTERLEAVE].in_fmt              = out_deinterleaved_format;
-        s->stages[STAGE_INTERLEAVE].out_fmt             = out_format;
-        s->stages[STAGE_INTERLEAVE].planes_in[0].width  = out_width;
-        s->stages[STAGE_INTERLEAVE].planes_in[0].height = out_height;
-
-        if (s->stages[STAGE_FMTCONV].stage_needed)
-        {
-            /*
-             *  nv12 -> rgb :                      step4
-             *  非nv12(yuv420p) -> rgb :            step3、step4
-             *  in12 -> resize -> rgb :            step1 ~ step4
-             *  非nv12(yuv420p) -> resize -> rgb : step2 ~ step4
-             */
-            if (!s->stages[STAGE_RESIZE].stage_needed)
-            {
-                s->stages[STAGE_DEINTERLEAVE].stage_needed = 0;
-                if (in_format == AV_PIX_FMT_NV12)
-                    s->stages[STAGE_INTERLEAVE].stage_needed = 0;
-            }
-
-            s->stages[STAGE_FMTCONV].in_fmt              = out_format;
-            s->stages[STAGE_FMTCONV].out_fmt             = final_format;
-            s->stages[STAGE_FMTCONV].planes_in[0].width  = out_width;
-            s->stages[STAGE_FMTCONV].planes_in[0].height = out_height;
+        if (s->interp_algo == NPPI_INTER_SUPER &&
+            !(out_width < in_width && out_height < in_height)) {
+            s->interp_algo = NPPI_INTER_CUBIC;
+            av_log(ctx, AV_LOG_WARNING, "super-sampling not supported for output dimensions, using cubic instead.\n");
         }
     }
-    else
-    {
-        /* 只进行格式转换，nv12 -> rgb24/bgr24 */
-        s->stages[STAGE_RESIZE].stage_needed = 0;
-        s->stages[STAGE_DEINTERLEAVE].stage_needed = 0;
-        s->stages[STAGE_INTERLEAVE].stage_needed = 0;
-        s->stages[STAGE_FMTCONV].stage_needed = 1;
 
-        s->stages[STAGE_FMTCONV].in_fmt              = in_format;
-        s->stages[STAGE_FMTCONV].out_fmt             = out_format;
+    /* 表示输入和输出一样且不需要缩放，不用处理 */
+    if (!s->stages[STAGE_RESIZE].stage_needed && in_format == final_format)
+        s->passthrough = 1;
+
+    if (!s->passthrough) {
+        if (in_format != in_deinterleaved_format)
+            s->stages[STAGE_DEINTERLEAVE].stage_needed = 1;
+        if (out_format != out_deinterleaved_format)
+            s->stages[STAGE_INTERLEAVE].stage_needed = 1;
+        if (final_format == AV_PIX_FMT_RGB24 || final_format == AV_PIX_FMT_BGR24)
+            s->stages[STAGE_FMTCONV].stage_needed = 1;
+    }
+
+    s->stages[STAGE_DEINTERLEAVE].in_fmt              = in_format;
+    s->stages[STAGE_DEINTERLEAVE].out_fmt             = in_deinterleaved_format;
+    s->stages[STAGE_DEINTERLEAVE].planes_in[0].width  = in_width;
+    s->stages[STAGE_DEINTERLEAVE].planes_in[0].height = in_height;
+
+    s->stages[STAGE_RESIZE].in_fmt               = in_deinterleaved_format;
+    s->stages[STAGE_RESIZE].out_fmt              = out_deinterleaved_format;
+    s->stages[STAGE_RESIZE].planes_in[0].width   = in_width;
+    s->stages[STAGE_RESIZE].planes_in[0].height  = in_height;
+    s->stages[STAGE_RESIZE].planes_out[0].width  = out_width;
+    s->stages[STAGE_RESIZE].planes_out[0].height = out_height;
+
+    s->stages[STAGE_INTERLEAVE].in_fmt              = out_deinterleaved_format;
+    s->stages[STAGE_INTERLEAVE].out_fmt             = out_format;
+    s->stages[STAGE_INTERLEAVE].planes_in[0].width  = out_width;
+    s->stages[STAGE_INTERLEAVE].planes_in[0].height = out_height;
+
+    if (s->stages[STAGE_FMTCONV].stage_needed)
+    {
+        /*
+         *  nv12 -> rgb :                      step3
+         *  非nv12(yuv420p) -> rgb :            step2、step3(后续可以适配yuv420p直接转rgb)
+         *  in12 -> resize -> rgb :            step0 ~ step3
+         *  非nv12(yuv420p) -> resize -> rgb : step1 ~ step3
+         */
+        if (!s->stages[STAGE_RESIZE].stage_needed)
+        {
+            s->stages[STAGE_DEINTERLEAVE].stage_needed = 0;
+            if (in_format == AV_PIX_FMT_NV12)
+                s->stages[STAGE_INTERLEAVE].stage_needed = 0;
+        }
+
+        s->stages[STAGE_FMTCONV].in_fmt              = out_format;
+        s->stages[STAGE_FMTCONV].out_fmt             = final_format;
         s->stages[STAGE_FMTCONV].planes_in[0].width  = out_width;
         s->stages[STAGE_FMTCONV].planes_in[0].height = out_height;
-        av_log(ctx, AV_LOG_ERROR, "setup step4 chain\n");
     }
 
     /* init the hardware contexts */
@@ -682,10 +660,14 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
         if (!s->stages[i].stage_needed)
             continue;
 
+        av_log(ctx, AV_LOG_INFO, "step %d: in[%s, %d x %d] -> out[%s, %d x %d]\n", i,
+               av_get_pix_fmt_name(s->stages[i].in_fmt), s->stages[i].planes_in[0].width, s->stages[i].planes_in[0].height,
+               av_get_pix_fmt_name(s->stages[i].out_fmt), s->stages[i].planes_out[0].width, s->stages[i].planes_out[0].height);
+
         ret = init_stage(&s->stages[i], in_frames_ctx->device_ref);
         if (ret < 0)
         {
-            av_log(ctx, AV_LOG_ERROR, "init_stage.\n");
+            av_log(ctx, AV_LOG_ERROR, "init stage[%d] error: %d\n", i, ret);
             return ret;
         }
         last_stage = i;
@@ -696,8 +678,10 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
     else
         ctx->outputs[0]->hw_frames_ctx = av_buffer_ref(ctx->inputs[0]->hw_frames_ctx);
 
-    if (!ctx->outputs[0]->hw_frames_ctx)
-        return AVERROR(ENOMEM);
+    if (!ctx->outputs[0]->hw_frames_ctx){
+       av_log(ctx, AV_LOG_ERROR, "No hw context provided on output\n");
+       return AVERROR(ENOMEM);
+    }
 
     return 0;
 }
@@ -713,10 +697,7 @@ static int config_props(AVFilterLink *outlink)
     int ret;
 
     if ((ret = nppscale_eval_dimensions(ctx)) < 0)
-    {
-        av_log(ctx, AV_LOG_ERROR, "nppscale_eval_dimensions.\n");
         goto fail;
-    }
 
     ff_scale_adjust_dimensions(inlink, &s->w, &s->h,
                                s->force_original_aspect_ratio,
@@ -732,10 +713,7 @@ static int config_props(AVFilterLink *outlink)
 
     ret = init_processing_chain(ctx, inlink0->w, inlink0->h, outlink->w, outlink->h);
     if (ret < 0)
-    {
-        av_log(ctx, AV_LOG_ERROR, "init_processing_chain.\n");
         return ret;
-    }
 
     av_log(ctx, AV_LOG_VERBOSE, "w:%d h:%d -> w:%d h:%d\n",
            inlink->w, inlink->h, outlink->w, outlink->h);
@@ -775,14 +753,6 @@ static int nppscale_deinterleave(AVFilterContext *ctx, NPPScaleStageContext *sta
     AVHWFramesContext *in_frames_ctx = (AVHWFramesContext*)in->hw_frames_ctx->data;
     NppStatus err;
 
-    AVHWFramesContext *out_frames_ctx = (AVHWFramesContext*)out->hw_frames_ctx->data;
-    av_log(ctx, AV_LOG_ERROR,
-           "step 1:\n"
-           "in:  width = %d, height = %d, sw_format = %s\n"
-           "out: width = %d, height = %d, sw_format = %s\n",
-           in_frames_ctx->width, in_frames_ctx->height, av_get_pix_fmt_name(in_frames_ctx->sw_format), 
-           out_frames_ctx->width, out_frames_ctx->height, av_get_pix_fmt_name(out_frames_ctx->sw_format));
-
     switch (in_frames_ctx->sw_format) {
     case AV_PIX_FMT_NV12:
         err = nppiYCbCr420_8u_P2P3R(in->data[0], in->linesize[0],
@@ -807,16 +777,6 @@ static int nppscale_resize(AVFilterContext *ctx, NPPScaleStageContext *stage,
     NPPScaleContext *s = ctx->priv;
     NppStatus err;
     int i;
-
-    AVHWFramesContext *in_frames_ctx = (AVHWFramesContext*)in->hw_frames_ctx->data;
-    AVHWFramesContext *out_frames_ctx = (AVHWFramesContext*)out->hw_frames_ctx->data;
-
-    av_log(ctx, AV_LOG_ERROR,
-           "step 2:\n"
-           "in:  width = %d, height = %d, sw_format = %s\n"
-           "out: width = %d, height = %d, sw_format = %s\n",
-           in_frames_ctx->width, in_frames_ctx->height, av_get_pix_fmt_name(in_frames_ctx->sw_format), 
-           out_frames_ctx->width, out_frames_ctx->height, av_get_pix_fmt_name(out_frames_ctx->sw_format));
 
     for (i = 0; i < FF_ARRAY_ELEMS(stage->planes_in) && i < FF_ARRAY_ELEMS(in->data) && in->data[i]; i++) {
         int iw = stage->planes_in[i].width;
@@ -845,14 +805,6 @@ static int nppscale_interleave(AVFilterContext *ctx, NPPScaleStageContext *stage
     AVHWFramesContext *out_frames_ctx = (AVHWFramesContext*)out->hw_frames_ctx->data;
     NppStatus err;
 
-    AVHWFramesContext *in_frames_ctx = (AVHWFramesContext*)in->hw_frames_ctx->data;
-    av_log(ctx, AV_LOG_ERROR,
-           "step 3:\n"
-           "in:  width = %d, height = %d, sw_format = %s\n"
-           "out: width = %d, height = %d, sw_format = %s\n",
-           in_frames_ctx->width, in_frames_ctx->height, av_get_pix_fmt_name(in_frames_ctx->sw_format), 
-           out_frames_ctx->width, out_frames_ctx->height, av_get_pix_fmt_name(out_frames_ctx->sw_format));
-
     switch (out_frames_ctx->sw_format) {
     case AV_PIX_FMT_NV12:
         err = nppiYCbCr420_8u_P3P2R((const uint8_t**)in->data,
@@ -880,24 +832,15 @@ static int nppscale_fmtconv(AVFilterContext *ctx, NPPScaleStageContext *stage,
    const Npp8u *pSrc[2] = {in->data[0], in->data[1]};
    NppStatus err;
 
-   av_log(ctx, AV_LOG_ERROR,
-          "step 4:\n"
-          "in:  width = %d, height = %d, sw_format = %s\n"
-          "out: width = %d, height = %d, sw_format = %s\n",
-          in_frames_ctx->width, in_frames_ctx->height, av_get_pix_fmt_name(in_frames_ctx->sw_format), 
-          out_frames_ctx->width, out_frames_ctx->height, av_get_pix_fmt_name(out_frames_ctx->sw_format));
-   av_log(ctx, AV_LOG_ERROR, "fmtconv to %s:\n", av_get_pix_fmt_name(out_frames_ctx->sw_format));
-   av_log(ctx, AV_LOG_ERROR, "in linesize[%d %d %d], out linesize[%d %d %d]\n", in->linesize[0], in->linesize[1], in->linesize[2], 
-                                                                                out->linesize[0], out->linesize[1], out->linesize[2]);
-   /* 输入格式只能是nv12 */
+   /* 输入格式只支持nv12 */
    if (in_frames_ctx->sw_format != AV_PIX_FMT_NV12) {
-       av_log(ctx, AV_LOG_ERROR, "step4: Unsupported input format: %s\n", av_get_pix_fmt_name(in_frames_ctx->sw_format));
+       av_log(ctx, AV_LOG_ERROR, "fmtconv: Unsupported input format: %s\n", av_get_pix_fmt_name(in_frames_ctx->sw_format));
        return AVERROR(ENOSYS);
    }
 
    switch (out_frames_ctx->sw_format) {
    case AV_PIX_FMT_RGB24:
-        /* NppStatus nppiNV12ToRGB_8u_P2C3R(const Npp8u * const pSrc[2], int rSrcStep, Npp8u * pDst, int nDstStep, NppiSize oSizeROI);; */
+        /* NppStatus nppiNV12ToRGB_8u_P2C3R(const Npp8u * const pSrc[2], int rSrcStep, Npp8u * pDst, int nDstStep, NppiSize oSizeROI); */
         err = nppiNV12ToRGB_8u_P2C3R(pSrc,
                                      in->linesize[0],
                                      out->data[0],
@@ -920,7 +863,7 @@ static int nppscale_fmtconv(AVFilterContext *ctx, NPPScaleStageContext *stage,
                                       (NppiSize){ in->width, in->height });
        break;
    default:
-       av_log(ctx, AV_LOG_ERROR, "step4: Unsupported output format: %s\n", av_get_pix_fmt_name(out_frames_ctx->sw_format));
+       av_log(ctx, AV_LOG_ERROR, "fmtconv: Unsupported output format: %s\n", av_get_pix_fmt_name(out_frames_ctx->sw_format));
        return AVERROR_BUG;
    }
    if (err != NPP_SUCCESS) {
@@ -934,10 +877,10 @@ static int nppscale_fmtconv(AVFilterContext *ctx, NPPScaleStageContext *stage,
 
 static int (*const nppscale_process[])(AVFilterContext *ctx, NPPScaleStageContext *stage,
                                        AVFrame *out, AVFrame *in) = {
-    [STAGE_DEINTERLEAVE] = nppscale_deinterleave,       // nv12 ->  yuv420p，为了后续的放缩
-    [STAGE_RESIZE]       = nppscale_resize,             // resize -> yuv420p -> yuv444p
+    [STAGE_DEINTERLEAVE] = nppscale_deinterleave,       // nv12    -> yuv420p，为了后续的放缩
+    [STAGE_RESIZE]       = nppscale_resize,             // resize  -> yuv420p -> yuv444p
     [STAGE_INTERLEAVE]   = nppscale_interleave,         // yuv420p -> nv12
-    [STAGE_FMTCONV]      = nppscale_fmtconv,            // nv12 -> rgb
+    [STAGE_FMTCONV]      = nppscale_fmtconv,            // nv12    -> rgb
 };
 
 static int nppscale_scale(AVFilterLink *link, AVFrame *out, AVFrame *in)
