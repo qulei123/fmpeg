@@ -5,9 +5,12 @@ CRSC README
 ## 简介
 ffmpeg项目，主要适配avfilter中的scale_npp支持RGB24、BGR24格式，以减少CPU使用率。
 
-20240125，下载ffmpeg官方源码
+* 20240125，下载ffmpeg官方源码:
+```
 git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg/
-当前最新log:      
+```
+* 当前最新log:  
+```  
 commit e0da916b8f5b079a4865eef7f64863f50785463d (HEAD -> master, origin/master, origin/HEAD)
 Author: Anton Khirnov <anton@khirnov.net>
 Date:   Wed Jan 24 20:21:37 2024 +0100
@@ -18,6 +21,7 @@ Date:   Wed Jan 24 20:21:37 2024 +0100
     better throughput.
     
     Allow -thread_queue_size to set the muxer queue size manually again.
+```
 
 ## 编译方法
 参考[Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration](doc/Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration.pdf)文档中的`2.2.2.1. Compiling for Linux`zhangji章节。

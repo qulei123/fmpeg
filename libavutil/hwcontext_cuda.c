@@ -47,6 +47,8 @@ static const enum AVPixelFormat supported_formats[] = {
     AV_PIX_FMT_0BGR32,
     AV_PIX_FMT_RGB32,
     AV_PIX_FMT_BGR32,
+    AV_PIX_FMT_RGB24,
+    AV_PIX_FMT_BGR24,
 #if CONFIG_VULKAN
     AV_PIX_FMT_VULKAN,
 #endif
@@ -150,7 +152,7 @@ static int cuda_frames_init(AVHWFramesContext *ctx)
     if (err < 0)
         return err;
 
-    av_log(ctx, AV_LOG_DEBUG, "CUDA texture alignment: %d\n", priv->tex_alignment);
+    av_log(ctx, AV_LOG_ERROR, "CUDA texture alignment: %d\n", priv->tex_alignment);
 
     // YUV420P is a special case.
     // Since nvenc expects the U/V planes to have half the linesize of the Y plane
