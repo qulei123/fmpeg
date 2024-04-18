@@ -24,7 +24,7 @@ Date:   Wed Jan 24 20:21:37 2024 +0100
 ```
 
 ## 编译方法
-参考[Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration](doc/Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration.pdf)文档中的`2.2.2.1. Compiling for Linux`zhangji章节。
+参考[Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration](doc/Using_FFmpeg_with_NVIDIA_GPU_Hardware_Acceleration.pdf)文档中的`2.2.2.1. Compiling for Linux`章节。
 
 FFmpeg with NVIDIA GPU acceleration is supported on all Linux platforms.
 To compile FFmpeg on Linux, do the following:
