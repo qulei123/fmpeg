@@ -92,10 +92,10 @@ ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.
 
 ```
 > 结论：
-    1. 软解码缩放 -> 硬解码缩放（软转rgb24），cpu使用率从112%下降到30%；
-    2. nv12硬转yuv420p软转bgr24，cpu 28~31%；
-    3. nv12硬转bgr24, cpu 16~20%，cpu使用率从降约10%；
-    4. nv12直接输出，cpu 11~13%。
+>  1. 软解码缩放 -> 硬解码缩放（软转rgb24），cpu使用率从112%下降到30%；
+>  2. nv12硬转yuv420p软转bgr24，cpu 28~31%；
+>  3. nv12硬转bgr24, cpu 16~20%，cpu使用率从降约10%；
+>  4. nv12直接输出，cpu 11~13%。
 
 FFmpeg README
 =============
