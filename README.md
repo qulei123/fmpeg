@@ -1,5 +1,5 @@
 
-CRSC README
+README
 =============
 
 ## 简介
@@ -47,6 +47,55 @@ make -j 8
 ### 7. Install the libraries.
 sudo make install
 
+## 测试命令
+```
+# 保存文件
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -rtsp_transport tcp -i "rtsp://192.168.1.119/live/test" -vf "scale_npp=format=bgr24,hwdownload,format=bgr24" -fps_mode vfr out.rgb -y
+# 不保存文件
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -rtsp_transport tcp -i "rtsp://192.168.1.119/live/test" -vf "scale_npp=format=bgr24,hwdownload,format=bgr24" -fps_mode vfr -f rawvideo pipe: > /dev/null
+```
+
+## 测试结论
+使用1路1080p、25fps的视频，在`NVIDIA GeForce GTX 1080 Ti`上测试：
+
+```
+# nv12直接硬转yuv420p，软转rgb24
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test" -vf "scale_cuda=format=yuv420p,hwdownload,format=yuv420p,format=rgb24" -f rawvideo pipe: > /dev/null
+212m, fps= 25, cpu 30
+
+# nv12直接硬转yuv420p，不转rgb24
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test" -vf "scale_cuda=format=yuv420p,hwdownload,format=yuv420p" -f rawvideo pipe: > /dev/null
+212m, fps= 25, cpu 12
+
+# 软件转码，默认yuv420p
+ffmpeg -i "rtsp://192.168.1.119/live/test" -f rawvideo pipe: > /dev/null
+0m, fps= 25, cpu 100
+
+# 软件转码, 再转rgb24
+ffmpeg -i "rtsp://192.168.1.119/live/test" -vf "format=rgb24" -f rawvideo pipe: > /dev/null
+ffmpeg -i "rtsp://192.168.1.119/live/test" -f rawvideo -pix_fmt rgb24 pipe: > /dev/null
+0m, fps= 25, cpu 112
+
+# nv12直接硬转yuv420p，软转bgr24
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test" -vf "scale_npp=format=yuv420p,hwdownload,format=yuv420p,format=bgr24" -f rawvideo pipe: > /dev/null
+214m, fps= 25, cpu 28~31
+
+# nv12直接硬转bgr24
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test" -vf "scale_npp=format=bgr24,hwdownload,format=bgr24" -f rawvideo pipe: > /dev/null
+222m, fps= 25, cpu 16~20
+
+# nv12直接输出，2中方式
+ffmpeg -hwaccel cuda  -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test"  -f rawvideo pipe: > /dev/null
+196m, fps= 25, cpu 11~13
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid -i "rtsp://192.168.1.119/live/test" -vf "hwdownload,format=nv12" -f rawvideo pipe: > /dev/null
+204m, fps= 25, cpu 11~13
+
+```
+> 结论：
+    1. 软解码缩放 -> 硬解码缩放（软转rgb24），cpu使用率从112%下降到30%；
+    2. nv12硬转yuv420p软转bgr24，cpu 28~31%；
+    3. nv12硬转bgr24, cpu 16~20%，cpu使用率从降约10%；
+    4. nv12直接输出，cpu 11~13%。
 
 FFmpeg README
 =============
